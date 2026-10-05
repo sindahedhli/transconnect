@@ -1,6 +1,8 @@
 import uuid
 from django.db import models
 from EntreprisesApp.models import Entreprise
+from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 
 class Expedition(models.Model):
@@ -17,14 +19,27 @@ class Expedition(models.Model):
         ('livree', 'Livrée'),
         ('annulee', 'Annulée'),
     ], default='publiee')
-    entreprise = models.ForeignKey(Entreprise, on_delete=models.CASCADE)
+    entreprise = models.ForeignKey("EntreprisesApp.Entreprise", on_delete=models.CASCADE , related_name='expeditions')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    def save(self, *args, **kwargs):
-        if not self.reference:
-            self.reference = f"EXP-{uuid.uuid4().hex[:8].upper()}"
-        super().save(*args, **kwargs)
+    def clean(self):
+        super().clean()
+        if self.entreprise_id and self.entreprise.type_entreprise != 'chargeur':
+            raise ValidationError({'entreprise : une expedition ne peut etre que par une entreprise de tupe chargeur'})
+        
+    @classmethod
+    def _generate_reference(cls):
+        annee = timezone.now.strftime('%y')
 
-    def __str__(self):
-        return self.reference
+        dernier= cls.objects.filter(reference_startswith=f"EXP _{annee} _").order_by('-reference').first
+        compteur = int(dernier.reference[-5:]) + 1 if dernier else 1
+        if compteur > 99999 :
+            raise ValidationError("Limite exceeded")
+        return f"EXP_{annee}_{compteur:05d}"
+    
+    def save(self, *args, **kwargs):
+        if not self.reference:                              
+            self.reference =self._generate_reference()
+        self.full_clean()
+        super().save(*args, **kwargs)
